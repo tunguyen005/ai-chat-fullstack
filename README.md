@@ -22,6 +22,24 @@ Full-stack AI chat — React 18 · Node.js · MongoDB · Ollama (Llama 3 / LLaVA
 
 ### Architecture
 
+```mermaid
+graph TD
+    A[User sends message] --> B{has files?}
+    B -->|yes| C[POST /upload · multer]
+    C --> D[POST /messages/stream]
+    B -->|no| D
+    D --> E{detectFlow}
+    E -->|image attachment| F[Vision · LLaVA / OCR]
+    E -->|gen pattern| G[Imagegen · Pollinations]
+    E -->|normal| H[buildAttachmentContext]
+    F --> H
+    H --> I[buildHistory · Redis → MongoDB]
+    I --> J[callOllama stream]
+    J --> K[SSE delta events → UI]
+    K --> L[save aiMessage · MongoDB + Redis]
+    G --> L
+```
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Client (Browser)                          │
