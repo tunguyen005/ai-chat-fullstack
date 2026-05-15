@@ -35,11 +35,8 @@ services:
     ports:
       - "11434:11434"
 
-    # KHÔNG mount /root/.ollama
-    # nếu mount sẽ overwrite model
-
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      test: ["CMD", "ollama", "list"]
       interval: 20s
       timeout: 10s
       retries: 10
