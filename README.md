@@ -258,7 +258,7 @@ This mode is recommended for development and code review.
 
 ```bash
 git clone <your-github-repo-url>
-cd ai-chat
+cd ai-chat-fullstack
 ```
 
 ## Step 2 — Install dependencies
@@ -372,79 +372,52 @@ npm start
 
 # Option B — Run from Docker Hub
 
-This mode is recommended for recruiters or quick demos.
-
-No Node.js, MongoDB, or Redis installation required.
+Recommended for recruiters or quick demos.  
+No Node.js, MongoDB, Redis, or Ollama installation required.
 
 ---
 
-## Step 1 — Clone repository
+## Prerequisites
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running
+
+---
+
+## Step 1 — Download compose file to a folder
 
 ```bash
-git clone <your-github-repo-url>
-cd ai-chat
+mkdir ai-chat-fullstack
+cd ai-chat-fullstack
+curl -O https://raw.githubusercontent.com/tunguyen005/ai-chat-fullstack/main/docker-compose.yml
 ```
+
+Or manually download `docker-compose.yml` from this repo.
 
 ---
 
-## Step 2 — Start Ollama
+## Step 2 — Prebuild the image
 
-Make sure Ollama is running:
-
-```bash
-ollama serve
-```
-
----
-
-## Step 3 — Configure environment variables
-
-### backend/.env
-
-```env
-OLLAMA_URL=http://host.docker.internal:11434
-LLAMA_MODEL=llama3
-```
-
-### frontend/.env
-
-```env
-REACT_APP_API_URL=http://localhost:5000/api
-```
-
----
-
-## Step 4 — Pull prebuilt images
 
 ```bash
 docker compose pull
 ```
 
-Or manually:
+## Step 3 — Start the application
 
 ```bash
-docker pull yourdockerhubusername/ai-chat-backend:latest
-docker pull yourdockerhubusername/ai-chat-frontend:latest
+docker compose up -d
 ```
+
+First run will pull all images automatically (~2–3 minutes depending on internet speed).
 
 ---
 
-## Step 5 — Start containers
+## Step 4 — Access the application
 
-```bash
-docker compose up
-```
-
-First run may take 1–2 minutes.
-
----
-
-## Access application
-
-| Service | URL |
-|---|---|
-| Frontend | http://localhost:3000 |
-| Backend API | http://localhost:5000 |
+| Service      | URL                          |
+|--------------|------------------------------|
+| Frontend     | http://localhost:3000        |
+| Backend API  | http://localhost:5000        |
 | Health Check | http://localhost:5000/health |
 
 ---
