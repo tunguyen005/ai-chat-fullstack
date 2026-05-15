@@ -241,65 +241,228 @@ Download: https://nodejs.org
 
 ---
 
-## Quick Start (Docker)
+## Quick Start
 
-This is the **recommended way** — no Node.js or MongoDB needed locally.
+Choose one of two ways to run this project:
 
-### Step 1 — Clone the repo
+- **Option A — Run from Source** → for developers who want to inspect or modify code.
+- **Option B — Run from Docker Hub** → for recruiters or anyone who wants to run the app instantly.
+
+---
+
+# Option A — Run from Source
+
+This mode is recommended for development and code review.
+
+## Step 1 — Clone repository
 
 ```bash
-git clone <repo-url>
+git clone <your-github-repo-url>
 cd ai-chat
 ```
 
-### Step 2 — Create environment files
+## Step 2 — Install dependencies
 
-**Backend** — copy and fill in:
+### Backend
+
 ```bash
-cp backend/.env.example backend/.env
+cd backend
+npm install
 ```
 
-Then open `backend/.env` and set at minimum:
+### Frontend
+
+```bash
+cd ../frontend
+npm install
 ```
-OLLAMA_URL=http://host.docker.internal:11434
+
+### Tests (optional)
+
+```bash
+cd ../tests
+npm install
+```
+
+---
+
+## Step 3 — Start required services
+
+### Start Ollama
+
+Make sure Ollama is running:
+
+```bash
+ollama serve
+```
+
+### Start MongoDB + Redis
+
+If you already have MongoDB and Redis installed locally, skip this step.
+
+Otherwise run:
+
+```bash
+docker compose up mongodb redis -d
+```
+
+---
+
+## Step 4 — Configure environment variables
+
+Create:
+
+### backend/.env
+
+```env
+PORT=5000
+NODE_ENV=development
+
+MONGODB_URI=mongodb://localhost:27017/ai_chat_db
+REDIS_URL=redis://localhost:6379
+
+OLLAMA_URL=http://localhost:11434
 LLAMA_MODEL=llama3
+OLLAMA_VISION_MODEL=llava
+
+UPLOAD_DIR=uploads
+MAX_FILE_SIZE=20971520
+
+FRONTEND_URL=http://localhost:3000
+
+SD_API_URL=http://localhost:7860
 ```
 
-**Frontend** — copy (default values work for Docker):
+### frontend/.env
+
+```env
+REACT_APP_API_URL=http://localhost:5000/api
+REACT_APP_NAME=AI Chat
+```
+
+---
+
+## Step 5 — Start application
+
+### Backend
+
 ```bash
-cp frontend/.env.example frontend/.env
+cd backend
+npm run dev
 ```
 
-> Full list of all variables: see [Environment Variables](#environment-variables) section.
-
-### Step 3 — Start Ollama (must be running on your host machine)
+### Frontend
 
 ```bash
-ollama serve    # or it may already be running
+cd frontend
+npm start
 ```
 
-### Step 4 — Start everything
+---
 
-```bash
-docker compose up --build
-```
-
-First run downloads Docker images (~2 min). Subsequent starts are fast.
+## Access application
 
 | Service | URL |
 |---|---|
 | Frontend | http://localhost:3000 |
 | Backend API | http://localhost:5000 |
-| Health check | http://localhost:5000/health |
+| Health Check | http://localhost:5000/health |
 
-### Stop
+---
+
+# Option B — Run from Docker Hub
+
+This mode is recommended for recruiters or quick demos.
+
+No Node.js, MongoDB, or Redis installation required.
+
+---
+
+## Step 1 — Clone repository
 
 ```bash
-docker compose down          # stop, keep data
-docker compose down -v       # stop, delete all data (MongoDB, Redis, uploads)
+git clone <your-github-repo-url>
+cd ai-chat
 ```
 
 ---
+
+## Step 2 — Start Ollama
+
+Make sure Ollama is running:
+
+```bash
+ollama serve
+```
+
+---
+
+## Step 3 — Configure environment variables
+
+### backend/.env
+
+```env
+OLLAMA_URL=http://host.docker.internal:11434
+LLAMA_MODEL=llama3
+```
+
+### frontend/.env
+
+```env
+REACT_APP_API_URL=http://localhost:5000/api
+```
+
+---
+
+## Step 4 — Pull prebuilt images
+
+```bash
+docker compose pull
+```
+
+Or manually:
+
+```bash
+docker pull yourdockerhubusername/ai-chat-backend:latest
+docker pull yourdockerhubusername/ai-chat-frontend:latest
+```
+
+---
+
+## Step 5 — Start containers
+
+```bash
+docker compose up
+```
+
+First run may take 1–2 minutes.
+
+---
+
+## Access application
+
+| Service | URL |
+|---|---|
+| Frontend | http://localhost:3000 |
+| Backend API | http://localhost:5000 |
+| Health Check | http://localhost:5000/health |
+
+---
+
+## Stop containers
+
+```bash
+docker compose down
+```
+
+Remove all persisted data:
+
+```bash
+docker compose down -v
+```
+
+---
+
 
 ## Local Development
 
