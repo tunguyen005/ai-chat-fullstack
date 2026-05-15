@@ -1,0 +1,33 @@
+{
+  "name": "ai-chat-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@testing-library/jest-dom": "^5.17.0",
+    "@testing-library/react": "^13.4.0",
+    "axios": "^1.7.9",
+    "lucide-react": "^0.469.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^9.0.1",
+    "react-scripts": "5.0.1",
+    "react-syntax-highlighter": "^15.6.1",
+    "rehype-highlight": "^7.0.0",
+    "remark-gfm": "^4.0.0",
+    "uuid": "^11.0.5"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  },
+  "eslintConfig": {
+    "extends": ["react-app"]
+  },
+  "browserslist": {
+    "production": [">0.2%", "not dead", "not op_mini all"],
+    "development": ["last 1 chrome version", "last 1 firefox version", "last 1 safari version"]
+  },
+  "proxy": "http://localhost:5000"
+}

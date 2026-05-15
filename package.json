@@ -1,0 +1,22 @@
+{
+  "name": "ai-chat-tests",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest run --coverage",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^1.6.0",
+    "@vitest/ui": "^1.6.0",
+    "supertest": "^7.0.0",
+    "vitest": "^1.6.0"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}
