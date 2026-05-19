@@ -1,349 +1,189 @@
-import fs from 'fs';
-import path from 'path';
+const https = require('https');
+const http  = require('http');
+
+const fetchBuffer = (url) =>
+  new Promise((resolve, reject) => {
+    const lib = url.startsWith('https') ? https : http;
+    lib.get(url, (res) => {
+      if (res.statusCode === 301 || res.statusCode === 302) {
+        return fetchBuffer(res.headers.location).then(resolve).catch(reject);
+      }
+      if (res.statusCode !== 200) {
+        return reject(new Error(`HTTP ${res.statusCode} fetching: ${url}`));
+      }
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => resolve(Buffer.concat(chunks)));
+      res.on('error', reject);
+    }).on('error', reject);
+  });
 
 const loadPdfParse = async () => {
-  try {
-    const m = await import('pdf-parse');
-    const fn = m.default || m;
-    if (typeof fn === 'function') return fn;
-    return null;
-  } catch (e) {
-    try {
-      const m = await import('pdf-parse');
-      const fn = m.default || m;
-      if (typeof fn === 'function') return fn;
-      return null;
-    } catch (e2) {
-      return null;
-    }
-  }
+  try { const m = await import('pdf-parse'); return m.default || m; } catch { return null; }
 };
-
 const loadMammoth = async () => {
-  try {
-    const m = await import('mammoth');
-    return m.default || m;
-  } catch (e) {
-    return null;
-  }
+  try { const m = await import('mammoth'); return m.default || m; } catch { return null; }
 };
-
 const loadTurndown = async () => {
-  try {
-    const m = await import('turndown');
-    return m.default || m;
-  } catch (e) {
-    return null;
-  }
+  try { const m = await import('turndown'); return m.default || m; } catch { return null; }
 };
-
 const loadXLSX = async () => {
-  try {
-    const m = await import('xlsx');
-    return m.default || m;
-  } catch (e) {
-    return null;
-  }
+  try { const m = await import('xlsx'); return m.default || m; } catch { return null; }
 };
 
-const loadTesseract = async () => {
-  try {
-    const m = await import('tesseract.js');
-    return m.default || m;
-  } catch (e) {
-    return null;
-  }
-};
-
-const truncate = (text, maxChars = 12000) => {
-  if (!text) return text;
-  if (text.length <= maxChars) return text;
-  return text.slice(0, maxChars) + `\n\n[... truncated — original length: ${text.length} chars]`;
-};
-
-const extractPDF = async (filePath) => {
+const extractPDF = async (buffer) => {
   const parse = await loadPdfParse();
-  if (!parse) return { text: '', pages: 0, info: {} };
-
-  let buffer;
-  try {
-    buffer = fs.readFileSync(filePath);
-  } catch (e) {
-    return { text: '', pages: 0, info: {} };
-  }
-
+  if (!parse) return { text: '' };
   const result = await parse(buffer);
-  return {
-    text: result.text?.trim() || '',
-    pages: result.numpages,
-    info: result.info,
-  };
+  return { text: result.text?.trim() || '', pages: result.numpages, type: 'pdf' };
 };
 
-const extractDOCX = async (filePath) => {
+const extractDOCX = async (buffer) => {
   const m = await loadMammoth();
-  if (!m) return { text: '', messages: [] };
+  if (!m) return { text: '' };
 
-  try {
-    if (typeof m.convertToMarkdown === 'function') {
-      const result = await m.convertToMarkdown({ path: filePath });
-      return { text: (result.value || '').trim(), messages: result.messages || [] };
-    }
-    if (typeof m.convertToHtml === 'function') {
-      const result = await m.convertToHtml({ path: filePath });
+  if (typeof m.convertToMarkdown === 'function') {
+    try {
+      const result = await m.convertToMarkdown({ buffer });
+      return { text: (result.value || '').trim(), type: 'docx' };
+    } catch { /* fall through */ }
+  }
+
+  if (typeof m.convertToHtml === 'function') {
+    try {
+      const result = await m.convertToHtml({ buffer });
       const html = result.value || '';
       const td = await loadTurndown();
-      let markdown = '';
+      let text = '';
       if (td) {
         const TurndownService = typeof td === 'function' ? td : td.default;
-        const turndown = new TurndownService();
-        markdown = turndown.turndown(html);
+        text = new TurndownService().turndown(html);
       } else {
-        markdown = html.replace(/<[^>]+>/g, '');
+        text = html.replace(/<[^>]+>/g, '');
       }
-      return { text: markdown.trim(), messages: result.messages || [] };
-    }
-    if (typeof m.extractRawText === 'function') {
-      const result = await m.extractRawText({ path: filePath });
-      return { text: (result.value || '').trim(), messages: result.messages || [] };
-    }
-  } catch (e) {
-    return { text: '', messages: [] };
+      return { text: text.trim(), type: 'docx' };
+    } catch { /* fall through */ }
   }
 
-  return { text: '', messages: [] };
+  if (typeof m.extractRawText === 'function') {
+    const result = await m.extractRawText({ buffer });
+    return { text: (result.value || '').trim(), type: 'docx' };
+  }
+
+  return { text: '' };
 };
 
-const extractXLSX = async (filePath) => {
+const extractXLSX = async (buffer) => {
   const lib = await loadXLSX();
   if (!lib) return { text: '' };
 
-  const workbook = lib.readFile(filePath);
+  const workbook = lib.read(buffer, { type: 'buffer' });
   const parts = [];
 
-  workbook.SheetNames.forEach((sheetName) => {
+  for (const sheetName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sheetName];
-    const rows = lib.utils.sheet_to_json(sheet, { header: 1 });
-    if (!rows || !rows.length) return;
+    const rows  = lib.utils.sheet_to_json(sheet, { header: 1 });
+    if (!rows.length) continue;
 
-    const maxCols = Math.max(...rows.map((r) => (r ? r.length : 0)));
-    const header = rows[0].map((c) => (c === null || c === undefined ? '' : String(c))).slice(0, maxCols);
-    const body = rows.slice(1);
-
-    const tableLines = [];
-    tableLines.push(`### Sheet: ${sheetName}`);
-    tableLines.push(`| ${header.join(' | ')} |`);
-    tableLines.push(`| ${header.map(() => '---').join(' | ')} |`);
-    for (const row of body) {
-      const cells = [];
-      for (let i = 0; i < maxCols; i++) {
-        const v = row && row[i] !== undefined && row[i] !== null ? String(row[i]) : '';
-        cells.push(v.replace(/\r?\n/g, ' '));
-      }
-      tableLines.push(`| ${cells.join(' | ')} |`);
+    const maxCols = Math.max(...rows.map((r) => r?.length || 0));
+    const header  = (rows[0] || []).map((c) => (c ?? '').toString()).slice(0, maxCols);
+    const lines   = [
+      `### Sheet: ${sheetName}`,
+      `| ${header.join(' | ')} |`,
+      `| ${header.map(() => '---').join(' | ')} |`,
+    ];
+    for (const row of rows.slice(1)) {
+      const cells = Array.from({ length: maxCols }, (_, i) =>
+        (row?.[i] ?? '').toString().replace(/\r?\n/g, ' ')
+      );
+      lines.push(`| ${cells.join(' | ')} |`);
     }
-    parts.push(tableLines.join('\n'));
-  });
+    parts.push(lines.join('\n'));
+  }
 
-  return { text: parts.join('\n\n') };
+  return { text: parts.join('\n\n'), type: 'xlsx' };
 };
 
-const extractCSV = (filePath) => {
-  const raw = fs.readFileSync(filePath, 'utf8');
+const extractCSV = (buffer) => {
+  const raw  = buffer.toString('utf-8');
   const rows = raw.split('\n').slice(0, 500).map((r) => r.replace(/\r$/, ''));
   if (!rows.length) return { text: '' };
   const header = rows[0].split(',');
-  const body = rows.slice(1).map((r) => r.split(','));
-  const lines = [];
-  lines.push(`| ${header.join(' | ')} |`);
-  lines.push(`| ${header.map(() => '---').join(' | ')} |`);
-  for (const r of body) {
-    if (r.join('').trim()) lines.push(`| ${r.join(' | ')} |`);
+  const lines  = [
+    `| ${header.join(' | ')} |`,
+    `| ${header.map(() => '---').join(' | ')} |`,
+  ];
+  for (const r of rows.slice(1)) {
+    if (r.trim()) lines.push(`| ${r.split(',').join(' | ')} |`);
   }
-  return { text: lines.join('\n') };
+  return { text: lines.join('\n'), type: 'csv' };
 };
 
-const extractText = (filePath) => {
-  const raw = fs.readFileSync(filePath, 'utf8');
-  return { text: raw };
+const extractPlainText = (buffer) => ({
+  text: buffer.toString('utf-8'),
+  type: 'text',
+});
+
+const truncate = (text, max = 12000) => {
+  if (!text || text.length <= max) return text;
+  return text.slice(0, max) + `\n\n[... truncated — original length: ${text.length} chars]`;
 };
 
-const extractImageOCR = async (filePath, lang = 'eng+vie') => {
-  const mod = await loadTesseract();
-  if (!mod) return { text: '', confidence: 0 };
+const getExtractor = (mimetype = '', filename = '') => {
+  const mime = mimetype.toLowerCase();
+  const ext  = (filename.split('.').pop() || '').toLowerCase();
 
-  const createWorker = mod.createWorker || (mod.default && mod.default.createWorker);
-  if (!createWorker) return { text: '', confidence: 0 };
-
-  const worker = await createWorker({ logger: () => {} });
-  try {
-    if (typeof worker.load === 'function') await worker.load();
-    if (typeof worker.loadLanguage === 'function') await worker.loadLanguage(lang);
-    if (typeof worker.initialize === 'function') await worker.initialize(lang);
-    const rec = await worker.recognize(filePath);
-    const text = rec?.data?.text ?? rec?.text ?? '';
-    const confidence = rec?.data?.confidence ?? rec?.confidence ?? 0;
-    return {
-      text: (text || '').trim(),
-      confidence: Math.round(confidence || 0),
-      method: 'tesseract-ocr',
-    };
-  } catch (e) {
-    return { text: '', confidence: 0 };
-  } finally {
-    try {
-      if (typeof worker.terminate === 'function') await worker.terminate();
-    } catch (e) {}
-  }
+  if (mime === 'application/pdf' || ext === 'pdf')                        return extractPDF;
+  if (['application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+       'application/msword'].includes(mime) || ['docx','doc'].includes(ext))
+                                                                           return extractDOCX;
+  if (['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+       'application/vnd.ms-excel'].includes(mime) || ['xlsx','xls'].includes(ext))
+                                                                           return extractXLSX;
+  if (mime === 'text/csv' || ext === 'csv')                               return extractCSV;
+  if (mime.startsWith('text/') || ['txt','md','json','yaml','yml','xml','html','log'].includes(ext))
+                                                                           return extractPlainText;
+  return null;
 };
 
-// ─── Main extractFileContent ─────────────────────────────────────────────────
-
-export const extractFileContent = async (filePath, mimetype, originalName) => {
-  const ext = path.extname(originalName || filePath).toLowerCase();
-
-  if (!fs.existsSync(filePath)) {
-    return {
-      text: null,
-      error: `File not found: ${originalName || filePath}`,
-      supported: false,
-      hasContent: false,
-    };
-  }
-
-  try {
-    let result;
-
-    if (mimetype === 'application/pdf' || ext === '.pdf') {
-      result = await extractPDF(filePath);
-      result.type = 'pdf';
-    }
-
-    else if (
-      mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-      mimetype === 'application/msword' ||
-      ext === '.docx' ||
-      ext === '.doc'
-    ) {
-      result = await extractDOCX(filePath);
-      result.type = 'docx';
-    }
-
-    else if (
-      mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-      mimetype === 'application/vnd.ms-excel' ||
-      ext === '.xlsx' ||
-      ext === '.xls'
-    ) {
-      result = await extractXLSX(filePath);
-      result.type = 'xlsx';
-    }
-
-    else if (mimetype === 'text/csv' || ext === '.csv') {
-      result = extractCSV(filePath);
-      result.type = 'csv';
-    }
-
-    else if (
-      mimetype?.startsWith('text/') ||
-      ['.txt', '.md', '.json', '.xml', '.html', '.htm', '.yaml', '.yml', '.log', '.env'].includes(ext)
-    ) {
-      result = extractText(filePath);
-      result.type = 'text';
-    }
-
-    else if (mimetype?.startsWith('image/')) {
-      result = await extractImageOCR(filePath);
-      result.type = 'image-ocr';
-    }
-
-    else {
-      return {
-        text: null,
-        error: `Unsupported file type: ${mimetype || ext}`,
-        supported: false,
-        hasContent: false,
-      };
-    }
-
-    return {
-      text: truncate(result.text || '') || null,
-      metadata: {
-        type: result.type,
-        pages: result.pages,
-        confidence: result.confidence,
-        method: result.method,
-        originalLength: result.text?.length || 0,
-      },
-      supported: true,
-      hasContent: (result.text?.trim().length || 0) > 0,
-    };
-  } catch (err) {
-    console.error(
-      `[fileExtractor] Error extracting ${originalName}:`,
-      err && err.message ? err.message : String(err)
-    );
-    const isNotFound =
-      err && (err.code === 'ENOENT' || /no such file/i.test(err.message || ''));
-    return {
-      text: null,
-      error: err && err.message ? err.message : String(err),
-      supported: !isNotFound,
-      hasContent: false,
-    };
-  }
-};
-
-export const buildFileContext = async (attachments = []) => {
+const buildFileContext = async (attachments = []) => {
   if (!attachments.length) return '';
 
   const sections = [];
 
   for (const att of attachments) {
-    const localPath =
-      att.localPath ||
-      att.url?.replace('/uploads/', '') ||
-      att.filename ||
-      att.originalName;
+    const url  = att.url || att.localPath;           // Cloudinary HTTPS URL
+    const name = att.originalName || url?.split('/').pop() || 'file';
 
-    const fullPath = path.isAbsolute(localPath)
-      ? localPath
-      : path.join(process.cwd(), 'uploads', path.basename(localPath));
-
-    if (!fs.existsSync(fullPath)) {
-      sections.push(
-        `<file name="${att.originalName}">[File not found: ${att.originalName}]</file>`
-      );
+    if (!url) {
+      sections.push(`<file name="${name}">[No URL available]</file>`);
       continue;
     }
 
-    const extracted = await extractFileContent(fullPath, att.mimetype, att.originalName);
-
-    if (!extracted.supported) {
-      sections.push(
-        `<file name="${att.originalName}">[Cannot read file type: ${att.originalName}]</file>`
-      );
+    const extractor = getExtractor(att.mimetype || '', name);
+    if (!extractor) {
+      sections.push(`<file name="${name}">[Unsupported file type: ${att.mimetype}]</file>`);
       continue;
     }
 
-    if (!extracted.hasContent) {
-      const errMsg = extracted.error
-        ? ` (Error: ${extracted.error})`
-        : ' (Empty or unreadable)';
-      sections.push(
-        `<file name="${att.originalName}">[File: ${att.originalName}${errMsg}]</file>`
-      );
-      continue;
-    }
+    try {
+      const buffer  = await fetchBuffer(url);
+      const result  = await extractor(buffer);
+      const content = truncate(result.text || '');
 
-    const content = extracted.text || '';
-    sections.push(`<file name="${att.originalName}">\n${content}\n</file>`);
+      if (!content?.trim()) {
+        sections.push(`<file name="${name}">[File is empty or could not be parsed]</file>`);
+      } else {
+        sections.push(`<file name="${name}">\n${content}\n</file>`);
+      }
+    } catch (err) {
+      console.error(`[fileExtractor] "${name}":`, err.message);
+      sections.push(`<file name="${name}">[Extraction error: ${err.message}]</file>`);
+    }
   }
 
   if (!sections.length) return '';
-
-  return (
-    `The user has attached the following file(s). Use their content to answer:\n\n` +
-    sections.join('\n\n')
-  );
+  return 'The user has attached the following file(s). Use their content to answer:\n\n' + sections.join('\n\n');
 };
+
+module.exports = { buildFileContext };
