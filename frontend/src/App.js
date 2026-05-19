@@ -8,9 +8,10 @@ function App() {
   const chat = useChat();
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  useEffect(() => {
-    chat.loadConversations();
-  }, []);
+ useEffect(() => {
+  chat.loadConversations();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
 
   return (
     <div className="app">

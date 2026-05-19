@@ -19,7 +19,6 @@ export const useChat = () => {
   const [isUploading, setIsUploading] = useState(false);
   const abortRef = useRef(false);
 
-  // ── Load conversations ──────────────────────────────────────────────────────
   const loadConversations = useCallback(async () => {
     try {
       const res = await conversationAPI.getAll({ userId: USER_ID });
@@ -29,7 +28,6 @@ export const useChat = () => {
     }
   }, []);
 
-  // ── Select conversation ─────────────────────────────────────────────────────
   const selectConversation = useCallback(async (conv) => {
     try {
       setIsLoading(true);
@@ -44,7 +42,6 @@ export const useChat = () => {
     }
   }, []);
 
-  // ── New conversation ────────────────────────────────────────────────────────
   const newConversation = useCallback(() => {
     setActiveConversation(null);
     setMessages([]);
@@ -52,7 +49,6 @@ export const useChat = () => {
     setError(null);
   }, []);
 
-  // ── Delete conversation ─────────────────────────────────────────────────────
   const deleteConversation = useCallback(async (id) => {
     try {
       await conversationAPI.delete(id);
@@ -66,7 +62,6 @@ export const useChat = () => {
     }
   }, [activeConversation]);
 
-  // ── Upload files ────────────────────────────────────────────────────────────
   const uploadFiles = useCallback(async (files) => {
     if (!files.length) return;
     setIsUploading(true);
@@ -84,13 +79,11 @@ export const useChat = () => {
     setAttachments((prev) => prev.filter((a) => a.url !== url));
   }, []);
 
-  // ── Send message ────────────────────────────────────────────────────────────
   const sendMessage = useCallback(async (content) => {
     if (!content.trim() && !attachments.length) return;
     setError(null);
     abortRef.current = false;
 
-    // Optimistic user message
     const tempUserMsg = {
       _id: 'temp_u_' + Date.now(),
       role: 'user',
@@ -99,7 +92,6 @@ export const useChat = () => {
       createdAt: new Date().toISOString(),
     };
 
-    // Optimistic AI placeholder
     const tempAiMsg = {
       _id: 'temp_ai_' + Date.now(),
       role: 'assistant',
@@ -126,7 +118,6 @@ export const useChat = () => {
         {
           onMessageCreated: ({ conversationId, userMessage }) => {
             convId = conversationId;
-            // Replace temp user message with real one
             setMessages((prev) =>
               prev.map((m) =>
                 m._id === tempUserMsg._id ? { ...userMessage, _id: userMessage._id || userMessage.id } : m
@@ -143,7 +134,6 @@ export const useChat = () => {
             );
           },
           onDone: ({ aiMessage, conversationId }) => {
-            // Replace temp AI message with real saved one
             setMessages((prev) =>
               prev.map((m) =>
                 m._id === tempAiMsg._id
@@ -152,7 +142,6 @@ export const useChat = () => {
               )
             );
 
-            // Update or set active conversation
             const newConv = {
               _id: conversationId,
               title: content.slice(0, 60) || 'New Conversation',
