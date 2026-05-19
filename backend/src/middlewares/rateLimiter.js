@@ -28,10 +28,9 @@ const strictLimiter = rateLimit({
   }
 });
 
-// Upload rate limiter (more restrictive)
 const uploadLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 5, // 5 uploads per minute
+  max: 100, // 100 uploads per minute
   standardHeaders: true,
   legacyHeaders: false,
   message: { 
