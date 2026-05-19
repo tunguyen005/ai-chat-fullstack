@@ -30,7 +30,6 @@ const detectExportableContent = (content = '') => {
     }
   }
 
-  // Detect nếu toàn bộ response là nội dung có thể xuất file
   const hasLargeContent = content.length > 300;
   const hasStructure = /^#{1,3}\s/m.test(content) || codeBlocks.length > 0;
 
@@ -202,7 +201,6 @@ const MessageExportPanel = ({ content, codeBlocks }) => {
   );
 };
 
-// ─── Attachment display ───────────────────────────────────────────────────────
 const Attachment = ({ att }) => {
   const isImage = att.mimetype?.startsWith('image/');
   const url = toFullUrl(att.url);
@@ -223,7 +221,6 @@ const Attachment = ({ att }) => {
   );
 };
 
-// ─── Copy button ──────────────────────────────────────────────────────────────
 const CopyButton = ({ text }) => {
   const [copied, setCopied] = useState(false);
   const handleCopy = async () => {
@@ -238,7 +235,6 @@ const CopyButton = ({ text }) => {
   );
 };
 
-// ─── Edit ─────────────────────────────────────────────────────────────────────
 const EditableMessage = ({ content, onSave, onCancel }) => {
   const [value, setValue] = useState(content);
   return (
@@ -255,7 +251,6 @@ const EditableMessage = ({ content, onSave, onCancel }) => {
   );
 };
 
-// ─── Single Message ───────────────────────────────────────────────────────────
 const Message = ({ message, onEdit }) => {
   const isUser = message.role === 'user';
   const [hovered, setHovered] = useState(false);
@@ -266,7 +261,6 @@ const Message = ({ message, onEdit }) => {
     [message.content]
   );
 
-  // Track code block index for rendering
   let codeBlockIndex = 0;
 
   const handleSaveEdit = (newContent) => {
