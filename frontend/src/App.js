@@ -10,7 +10,7 @@ function App() {
 
   useEffect(() => {
     chat.loadConversations();
-  }, [chat]);
+  }, []);
 
   return (
     <div className="app">
