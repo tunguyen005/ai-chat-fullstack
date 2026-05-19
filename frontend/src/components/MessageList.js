@@ -1,11 +1,11 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import {
   Bot, User, Paperclip, Copy, Check, Pencil, X,
-  Download, FileText, FileCode, ChevronDown
+  Download, FileText, FileCode
 } from 'lucide-react';
 
 const RAW_API = process.env.REACT_APP_API_URL;
