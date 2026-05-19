@@ -1,15 +1,14 @@
 require('dotenv').config();
+const Groq = require('groq-sdk');
 const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
 const { buildFileContext } = require('../services/fileExtractor');
 const { buildImageContext } = require('../services/visionService');
 const { generateImage, extractImagePromptFromMessage } = require('../services/imageGenerator');
 const { pushMessage, getMessages: getCachedMessages } = require('../services/cacheService');
-const http = require('http');
-const path = require('path');
 
-const OLLAMA_URL = process.env.OLLAMA_HOST;
-const LLAMA_MODEL = process.env.OLLAMA_MODEL;
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const GROQ_MODEL = process.env.GROQ_MODEL;
 
 const SYSTEM_PROMPT = `You are a helpful AI assistant. Be concise, accurate, and friendly.
 When the user attaches files or images, their extracted content will be provided to you — use it to answer.
@@ -17,51 +16,35 @@ Format responses using markdown when appropriate.
 IMPORTANT: When a user asks to "export", "save as file", "tạo file", "xuất file" — 
 tell them to use the Export button (↓ icon) on any message. Do NOT fabricate download links or pastebin URLs.`;
 
-const callOllama = (messages, stream = false) =>
-  new Promise((resolve, reject) => {
-    const payload = JSON.stringify({
-      model: LLAMA_MODEL,
-      messages,
-      stream,
-      options: { temperature: 0.7, num_predict: 4096 },
-    });
+const callGroq = async (messages) => {
+  const completion = await groq.chat.completions.create({
+    model: GROQ_MODEL,
+    messages,
+    temperature: 0.7,
+    max_tokens: 4096,
+    stream: false,
+  });
+  return completion.choices[0]?.message?.content || '';
+};
 
-    const url = new URL(`${OLLAMA_URL}/api/chat`);
-    const req = http.request(
-      {
-        hostname: url.hostname,
-        port: url.port,
-        path: url.pathname,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(payload),
-        },
-      },
-      (res) => {
-        let data = '';
-        res.on('data', (c) => (data += c));
-        res.on('end', () => {
-          try {
-            const json = JSON.parse(data);
-            if (json.error) return reject(new Error(json.error));
-            resolve(json.message?.content || '');
-          } catch {
-            reject(new Error('Invalid JSON from Ollama'));
-          }
-        });
-      }
-    );
-    req.on('error', reject);
-    req.setTimeout(120000, () => reject(new Error('Ollama request timed out')));
-    req.write(payload);
-    req.end();
+const callGroqStream = async (messages, onDelta) => {
+  const stream = await groq.chat.completions.create({
+    model: GROQ_MODEL,
+    messages,
+    temperature: 0.7,
+    max_tokens: 4096,
+    stream: true,
   });
 
-const resolveLocalPath = (att) => {
-  const urlPath = att.url || att.filename || '';
-  const basename = path.basename(urlPath.replace(/^\/uploads\//, ''));
-  return path.join(process.cwd(), 'uploads', basename);
+  let fullContent = '';
+  for await (const chunk of stream) {
+    const delta = chunk.choices[0]?.delta?.content || '';
+    if (delta) {
+      fullContent += delta;
+      onDelta(delta);
+    }
+  }
+  return fullContent;
 };
 
 const buildAttachmentContext = async (attachments = []) => {
@@ -70,7 +53,7 @@ const buildAttachmentContext = async (attachments = []) => {
   const imageAtts = attachments.filter((a) => a.mimetype?.startsWith('image/'));
   const fileAtts  = attachments.filter((a) => !a.mimetype?.startsWith('image/'));
 
-  const localise = (att) => ({ ...att, localPath: resolveLocalPath(att) });
+  const localise = (att) => ({ ...att, localPath: att.url });
 
   const [fileContext, imageContext] = await Promise.all([
     buildFileContext(fileAtts.map(localise)),
@@ -103,7 +86,9 @@ const buildHistory = async (conversationId, excludeId) => {
 
   try {
     for (const m of history) {
-      await pushMessage(conversationId, { _id: String(m._id), role: m.role, content: m.content, createdAt: m.createdAt });
+      await pushMessage(conversationId, {
+        _id: String(m._id), role: m.role, content: m.content, createdAt: m.createdAt,
+      });
     }
   } catch { /* noop */ }
 
@@ -113,8 +98,11 @@ const buildHistory = async (conversationId, excludeId) => {
 };
 
 const tryPush = async (convId, msg) => {
-  try { await pushMessage(convId, { _id: String(msg._id), role: msg.role, content: msg.content, createdAt: msg.createdAt }); }
-  catch { /* noop */ }
+  try {
+    await pushMessage(convId, {
+      _id: String(msg._id), role: msg.role, content: msg.content, createdAt: msg.createdAt,
+    });
+  } catch { /* noop */ }
 };
 
 const detectFlow = (content, attachments) => {
@@ -141,7 +129,11 @@ const getMessages = async (req, res) => {
       Message.countDocuments({ conversationId }),
     ]);
 
-    res.json({ success: true, data: messages, pagination: { total, page: parseInt(page), limit: parseInt(limit) } });
+    res.json({
+      success: true,
+      data: messages,
+      pagination: { total, page: parseInt(page), limit: parseInt(limit) },
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -187,7 +179,9 @@ const sendMessage = async (req, res) => {
           metadata: { imageUrl: imageResult.url, imageProvider: imageResult.provider },
         });
         await tryPush(conversation._id, aiMessage);
-        await Conversation.findByIdAndUpdate(conversation._id, { lastMessageAt: new Date(), $inc: { messageCount: 2 } });
+        await Conversation.findByIdAndUpdate(conversation._id, {
+          lastMessageAt: new Date(), $inc: { messageCount: 2 },
+        });
         return res.json({ success: true, data: { userMessage, aiMessage, conversationId: conversation._id } });
       } catch (imgErr) {
         const aiMessage = await Message.create({
@@ -208,13 +202,13 @@ const sendMessage = async (req, res) => {
       { role: 'user', content: userContent },
     ];
 
-    const aiContent = await callOllama(messages, false);
+    const aiContent = await callGroq(messages);
 
     const aiMessage = await Message.create({
       conversationId: conversation._id,
       role: 'assistant',
       content: aiContent,
-      model: LLAMA_MODEL,
+      model: GROQ_MODEL,
     });
     await tryPush(conversation._id, aiMessage);
 
@@ -271,7 +265,9 @@ const streamMessage = async (req, res) => {
           metadata: { imageUrl: imageResult.url, imageProvider: imageResult.provider },
         });
         await tryPush(conversation._id, aiMessage);
-        await Conversation.findByIdAndUpdate(conversation._id, { lastMessageAt: new Date(), $inc: { messageCount: 2 } });
+        await Conversation.findByIdAndUpdate(conversation._id, {
+          lastMessageAt: new Date(), $inc: { messageCount: 2 },
+        });
         send('done', { aiMessage, conversationId: conversation._id.toString() });
       } catch (imgErr) {
         send('delta', { text: `Image generation failed: ${imgErr.message}` });
@@ -298,53 +294,12 @@ const streamMessage = async (req, res) => {
       { role: 'user', content: userContent },
     ];
 
-    const payload = JSON.stringify({
-      model: LLAMA_MODEL,
-      messages,
-      stream: true,
-      options: { temperature: 0.7, num_predict: 4096 },
-    });
-
-    let fullContent = '';
-
-    await new Promise((resolve, reject) => {
-      const url = new URL(`${OLLAMA_URL}/api/chat`);
-      const ollamaReq = http.request(
-        {
-          hostname: url.hostname,
-          port: url.port,
-          path: url.pathname,
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
-        },
-        (ollamaRes) => {
-          let buf = '';
-          ollamaRes.on('data', (chunk) => {
-            buf += chunk.toString();
-            const lines = buf.split('\n');
-            buf = lines.pop() || '';
-            for (const line of lines) {
-              if (!line.trim()) continue;
-              try {
-                const json = JSON.parse(line);
-                const delta = json.message?.content || '';
-                if (delta) { fullContent += delta; send('delta', { text: delta }); }
-                if (json.done) resolve();
-              } catch { /* skip malformed */ }
-            }
-          });
-          ollamaRes.on('end', resolve);
-          ollamaRes.on('error', reject);
-        }
-      );
-      ollamaReq.on('error', reject);
-      ollamaReq.setTimeout(120000, () => reject(new Error('Ollama stream timed out')));
-      ollamaReq.write(payload);
-      ollamaReq.end();
+    const fullContent = await callGroqStream(messages, (delta) => {
+      send('delta', { text: delta });
     });
 
     const aiMessage = await Message.create({
-      conversationId: conversation._id, role: 'assistant', content: fullContent, model: LLAMA_MODEL,
+      conversationId: conversation._id, role: 'assistant', content: fullContent, model: GROQ_MODEL,
     });
     await tryPush(conversation._id, aiMessage);
 

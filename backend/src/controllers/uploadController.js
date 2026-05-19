@@ -1,5 +1,3 @@
-const path = require('path');
-
 const uploadFiles = async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
@@ -8,10 +6,10 @@ const uploadFiles = async (req, res) => {
 
     const uploaded = req.files.map((file) => ({
       originalName: file.originalname,
-      filename: file.filename,
+      filename: file.filename,           
       mimetype: file.mimetype,
       size: file.size,
-      url: `/uploads/${file.filename}`,
+      url: file.path,                    
     }));
 
     res.json({ success: true, data: uploaded });

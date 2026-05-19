@@ -1,5 +1,6 @@
 const https = require('https');
 const http = require('http');
+const cloudinary = require('../config/cloudinary');
 
 const POLLINATIONS_BASE = 'https://image.pollinations.ai/prompt';
 
@@ -17,47 +18,62 @@ const buildPollinationsUrl = (prompt, options = {}) => {
   return `${POLLINATIONS_BASE}/${encoded}?${params}`;
 };
 
-const fetchImageAsBase64 = (url) =>
+const fetchImageBuffer = (url) =>
   new Promise((resolve, reject) => {
     const lib = url.startsWith('https') ? https : http;
     lib.get(url, (res) => {
       if (res.statusCode === 301 || res.statusCode === 302) {
-        return fetchImageAsBase64(res.headers.location).then(resolve).catch(reject);
+        return fetchImageBuffer(res.headers.location).then(resolve).catch(reject);
       }
       if (res.statusCode !== 200) {
         return reject(new Error(`HTTP ${res.statusCode} from ${url}`));
       }
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
-      res.on('end', () => {
-        const buffer = Buffer.concat(chunks);
-        const contentType = res.headers['content-type'] || 'image/png';
-        resolve(`data:${contentType};base64,${buffer.toString('base64')}`);
-      });
+      res.on('end', () => resolve(Buffer.concat(chunks)));
       res.on('error', reject);
     }).on('error', reject);
   });
+  
+const uploadToCloudinary = (buffer, prompt) =>
+  new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder: 'ai_generated',
+        public_id: `gen_${Date.now()}`,
+        resource_type: 'image',
+        context: { caption: prompt.slice(0, 200) },
+      },
+      (error, result) => {
+        if (error) return reject(error);
+        resolve(result.secure_url);
+      }
+    );
+    stream.end(buffer);
+  });
 
 const generateWithPollinations = async (prompt, options = {}) => {
-  const url = buildPollinationsUrl(prompt, options);
-  const useDirectUrl = options.directUrl !== false;
+  const pollinationsUrl = buildPollinationsUrl(prompt, options);
 
-  if (useDirectUrl) {
-    return new Promise((resolve, reject) => {
-      https.get(url, { method: 'GET' }, (res) => {
-        if (res.statusCode === 200 || res.statusCode === 301 || res.statusCode === 302) {
-          res.destroy();
-          resolve({ url, provider: 'pollinations', model: options.model || 'flux', prompt });
-        } else {
-          res.destroy();
-          reject(new Error(`Pollinations returned HTTP ${res.statusCode}`));
-        }
-      }).on('error', reject);
-    });
+  try {
+    const buffer = await fetchImageBuffer(pollinationsUrl);
+    const cloudinaryUrl = await uploadToCloudinary(buffer, prompt);
+    return {
+      url: cloudinaryUrl,
+      provider: 'pollinations',
+      model: options.model || 'flux',
+      prompt,
+    };
+  } catch (err) {
+    // If upload fails, fall back to the raw Pollinations URL (ephemeral but usable)
+    console.warn('[imageGenerator] Cloudinary upload failed, using direct URL:', err.message);
+    return {
+      url: pollinationsUrl,
+      provider: 'pollinations',
+      model: options.model || 'flux',
+      prompt,
+    };
   }
-
-  const dataUri = await fetchImageAsBase64(url);
-  return { url: dataUri, provider: 'pollinations', model: options.model || 'flux', prompt };
 };
 
 const SD_API_URL = process.env.SD_API_URL;
@@ -89,12 +105,20 @@ const generateWithStableDiffusion = async (prompt, options = {}) => {
       (res) => {
         let data = '';
         res.on('data', (c) => (data += c));
-        res.on('end', () => {
+        res.on('end', async () => {
           try {
             const json = JSON.parse(data);
             const base64 = json.images?.[0];
             if (!base64) return reject(new Error('No image in SD response'));
-            resolve({ url: `data:image/png;base64,${base64}`, provider: 'stable-diffusion', prompt });
+
+            const buffer = Buffer.from(base64, 'base64');
+            const cloudinaryUrl = await uploadToCloudinary(buffer, prompt).catch(() => null);
+
+            resolve({
+              url: cloudinaryUrl || `data:image/png;base64,${base64}`,
+              provider: 'stable-diffusion',
+              prompt,
+            });
           } catch (e) {
             reject(new Error('Invalid JSON from SD: ' + e.message));
           }
@@ -110,6 +134,7 @@ const generateWithStableDiffusion = async (prompt, options = {}) => {
 
 const isSDRunning = () =>
   new Promise((resolve) => {
+    if (!SD_API_URL) return resolve(false);
     const url = new URL(`${SD_API_URL}/sdapi/v1/sd-models`);
     const req = http.request(
       { hostname: url.hostname, port: url.port || 7860, path: url.pathname, method: 'GET' },
@@ -139,23 +164,18 @@ const generateImage = async (prompt, options = {}) => {
 };
 
 const extractImagePromptFromMessage = (text) => {
-  if (!text || !text.trim()) return null;
+  if (!text?.trim()) return null;
 
   const triggers = [
     /^(?:generate|create|make|sinh)\s+(?:an?\s+)?(?:image|picture|photo|ảnh|hình)\s*(?:of\s+|về\s+|:)?\s*(.+)/i,
-
     /^(?:image|picture|photo|ảnh|hình)\s+(?:of|về|:)\s+(.+)/i,
-
     /^(?:draw|paint)\s+(.+)/i,
-
     /^(?:tạo|vẽ)\s+(.+)/i,
   ];
 
   for (const re of triggers) {
     const match = text.trim().match(re);
-    if (match) {
-      return match[match.length - 1].trim();
-    }
+    if (match) return match[match.length - 1].trim();
   }
 
   return null;

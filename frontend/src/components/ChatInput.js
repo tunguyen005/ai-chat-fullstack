@@ -1,16 +1,14 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { Plus, Send, X, Loader2, FileText, Image } from 'lucide-react';
+import { Plus, Send, X, Loader2, FileText } from 'lucide-react';
 
-const API_BASE = process.env.REACT_APP_API_URL?.replace('/api', '');
-
+// Cloudinary URLs are always absolute HTTPS — no need for API_BASE prefix
 const AttachmentPreview = ({ att, onRemove }) => {
   const isImage = att.mimetype?.startsWith('image/');
-  const url = att.url?.startsWith('http') ? att.url : `${API_BASE}${att.url}`;
 
   return (
     <div className="attachment-preview">
       {isImage ? (
-        <img src={url} alt={att.originalName} className="attachment-preview__img" />
+        <img src={att.url} alt={att.originalName} className="attachment-preview__img" />
       ) : (
         <div className="attachment-preview__file">
           <FileText size={16} />
@@ -59,7 +57,6 @@ const ChatInput = ({
 
   const handleTextChange = (e) => {
     setText(e.target.value);
-    // Auto-resize textarea
     const ta = textareaRef.current;
     if (ta) {
       ta.style.height = 'auto';
@@ -84,7 +81,6 @@ const ChatInput = ({
 
   return (
     <div className="chat-input-area">
-      {/* Attachment previews */}
       {attachments.length > 0 && (
         <div className="attachment-strip">
           {attachments.map((att, i) => (
@@ -97,14 +93,12 @@ const ChatInput = ({
         </div>
       )}
 
-      {/* Main input box */}
       <div
         className={`chat-input-box ${dragOver ? 'chat-input-box--dragover' : ''}`}
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
       >
-        {/* Plus / upload button */}
         <button
           className="chat-input__upload-btn"
           onClick={() => fileInputRef.current?.click()}
@@ -123,7 +117,6 @@ const ChatInput = ({
           onChange={handleFileSelect}
         />
 
-        {/* Textarea */}
         <textarea
           ref={textareaRef}
           className="chat-input__textarea"
@@ -135,7 +128,6 @@ const ChatInput = ({
           disabled={isStreaming}
         />
 
-        {/* Send button */}
         <button
           className={`chat-input__send-btn ${canSend ? 'chat-input__send-btn--active' : ''}`}
           onClick={handleSend}
